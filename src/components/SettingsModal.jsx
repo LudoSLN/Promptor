@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X, Eye, EyeOff, CheckCircle, AlertCircle, Key, Shield } from 'lucide-react';
 import { AI_PROVIDERS } from '../lib/ai-providers';
 
@@ -6,11 +6,6 @@ export default function SettingsModal({ isOpen, onClose, provider, setProvider, 
   const [showKey, setShowKey] = useState(false);
   const [localKey, setLocalKey] = useState(apiKey);
   const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    setLocalKey(apiKey);
-    setSaved(false);
-  }, [apiKey, isOpen]);
 
   if (!isOpen) return null;
 

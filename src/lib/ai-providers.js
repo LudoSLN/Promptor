@@ -21,12 +21,12 @@ export const AI_PROVIDERS = {
   },
   gemini: {
     id: 'gemini',
-    name: 'Gemini 3.1',
+    name: 'Gemini 3 Pro Preview',
     company: 'Google',
-    model: 'gemini-3.1-pro',
+    model: 'gemini-3-pro-preview',
     color: '#3b82f6',
     icon: '🔵',
-    apiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro:generateContent',
+    apiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent',
     headerKey: 'x-goog-api-key',
   },
 };
@@ -156,27 +156,7 @@ RÈGLES STRICTES
 - Tu suis le processus en 3 étapes de manière RIGOUREUSE. Ne saute jamais une étape.
 - Ne donne JAMAIS 5/5 au premier jet. L'itération est OBLIGATOIRE.`;
 
-export function buildMessages(conversationHistory, provider) {
-  if (provider === 'gemini') {
-    const contents = [];
-    contents.push({
-      role: 'user',
-      parts: [{ text: SYSTEM_PROMPT + '\n\nVoici le début de notre conversation. Lance l\'Étape 1 du processus Promptor.' }]
-    });
-    contents.push({
-      role: 'model',
-      parts: [{ text: 'Parfait ! Je suis Promptor, ton expert en création de prompts sur-mesure ! 🎯\n\nLançons l\'**Étape 1 : Identification de la Cible et du But**\n\nJ\'ai besoin de 2 informations essentielles :\n\n1. **De quel prompt as-tu besoin et pour atteindre quel objectif ?**\n2. **Sur quel outil ou modèle d\'IA vas-tu copier/coller ce prompt ?**\n\nDis-moi tout, je suis prêt à créer le prompt parfait pour toi !' }]
-    });
-
-    for (const msg of conversationHistory) {
-      contents.push({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }]
-      });
-    }
-    return contents;
-  }
-
+export function buildMessages(conversationHistory) {
   const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
 
   messages.push({
@@ -197,13 +177,27 @@ export async function callAI(messages, provider, apiKey, onChunk) {
   if (!apiKey) throw new Error('Clé API manquante. Configure-la dans les paramètres.');
 
   if (provider === 'gemini') {
-    const url = `${config.apiUrl}?key=${apiKey}`;
+    const url = config.apiUrl;
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
       body: JSON.stringify({
-        contents: messages,
-        generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+        system_instruction: {
+          parts: [{ text: SYSTEM_PROMPT }],
+        },
+        contents: messages
+          .filter((msg) => msg.role !== 'system')
+          .map((msg) => ({
+            role: msg.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: msg.content }],
+          })),
+        generationConfig: {
+          temperature: 1,
+          maxOutputTokens: 65536,
+        },
       }),
     });
 
@@ -213,7 +207,7 @@ export async function callAI(messages, provider, apiKey, onChunk) {
     }
 
     const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const text = extractGeminiText(data);
     if (onChunk) onChunk(text);
     return text;
   }
@@ -229,7 +223,8 @@ export async function callAI(messages, provider, apiKey, onChunk) {
         model: config.model,
         messages,
         temperature: 0.7,
-        max_tokens: 8192,
+        reasoning_effort: 'none',
+        max_completion_tokens: 8192,
         stream: true,
       }),
     });
@@ -273,6 +268,13 @@ export async function callAI(messages, provider, apiKey, onChunk) {
   }
 }
 
+function extractGeminiText(data) {
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  return parts
+    .map((part) => part?.text || '')
+    .join('');
+}
+
 async function readStream(response, onChunk, provider) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -308,7 +310,9 @@ async function readStream(response, onChunk, provider) {
           fullText += chunk;
           if (onChunk) onChunk(fullText);
         }
-      } catch {}
+      } catch {
+        // Ignore malformed SSE chunks and continue parsing the stream.
+      }
     }
   }
 
