@@ -72,6 +72,7 @@ export default function App() {
       />
 
       <SettingsModal
+        key={`${provider}:${apiKey}:${settingsOpen ? 'open' : 'closed'}`}
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         provider={provider}

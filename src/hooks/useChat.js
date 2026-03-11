@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { buildMessages, callAI } from '../lib/ai-providers';
 
 const INITIAL_MESSAGE = {
@@ -26,8 +26,6 @@ export function useChat() {
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [error, setError] = useState(null);
-  const abortRef = useRef(null);
-
   const sendMessage = useCallback(async (userMessage, provider, apiKey) => {
     setError(null);
     setIsLoading(true);
