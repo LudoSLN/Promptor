@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, Eye, EyeOff, CheckCircle, AlertCircle, Key, Shield } from 'lucide-react';
-import { AI_PROVIDERS } from '../lib/ai-providers';
+import { AI_PROVIDERS, sanitizeApiKey } from '../lib/ai-providers';
 
 export default function SettingsModal({ isOpen, onClose, provider, setProvider, apiKey, setApiKey }) {
   const [showKey, setShowKey] = useState(false);
@@ -10,14 +10,16 @@ export default function SettingsModal({ isOpen, onClose, provider, setProvider, 
   if (!isOpen) return null;
 
   const handleSave = () => {
-    setApiKey(localKey.trim());
+    const cleanedApiKey = sanitizeApiKey(localKey);
+    setLocalKey(cleanedApiKey);
+    setApiKey(cleanedApiKey);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
   const handleProviderSelect = (id) => {
     setProvider(id);
-    const storedKey = localStorage.getItem(`promptor_key_${id}`) || '';
+    const storedKey = sanitizeApiKey(localStorage.getItem(`promptor_key_${id}`) || '');
     setLocalKey(storedKey);
     setApiKey(storedKey);
   };

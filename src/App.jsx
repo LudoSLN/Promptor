@@ -7,6 +7,7 @@ import TypingIndicator from './components/TypingIndicator';
 import StreamingMessage from './components/StreamingMessage';
 import Footer from './components/Footer';
 import { useChat } from './hooks/useChat';
+import { sanitizeApiKey } from './lib/ai-providers';
 import { AlertCircle, X, RefreshCw } from 'lucide-react';
 
 export default function App() {
@@ -14,7 +15,7 @@ export default function App() {
   const [provider, setProvider] = useState(() => localStorage.getItem('promptor_provider') || 'claude');
   const [apiKey, setApiKey] = useState(() => {
     const p = localStorage.getItem('promptor_provider') || 'claude';
-    return localStorage.getItem(`promptor_key_${p}`) || '';
+    return sanitizeApiKey(localStorage.getItem(`promptor_key_${p}`) || '');
   });
 
   const { messages, isLoading, streamingContent, error, sendMessage, resetChat, regenerate, setError } = useChat();
@@ -25,8 +26,9 @@ export default function App() {
   }, [provider]);
 
   useEffect(() => {
-    if (apiKey) {
-      localStorage.setItem(`promptor_key_${provider}`, apiKey);
+    const cleanedApiKey = sanitizeApiKey(apiKey);
+    if (cleanedApiKey) {
+      localStorage.setItem(`promptor_key_${provider}`, cleanedApiKey);
     }
   }, [apiKey, provider]);
 
@@ -44,7 +46,7 @@ export default function App() {
 
   const handleProviderChange = (newProvider) => {
     setProvider(newProvider);
-    const storedKey = localStorage.getItem(`promptor_key_${newProvider}`) || '';
+    const storedKey = sanitizeApiKey(localStorage.getItem(`promptor_key_${newProvider}`) || '');
     setApiKey(storedKey);
   };
 

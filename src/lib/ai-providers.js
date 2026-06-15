@@ -21,15 +21,28 @@ export const AI_PROVIDERS = {
   },
   gemini: {
     id: 'gemini',
-    name: 'Gemini 3 Pro Preview',
+    name: 'Gemini Flash',
     company: 'Google',
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-flash-latest',
+    models: [
+      'gemini-flash-latest',
+      'gemini-3.5-flash',
+      'gemini-3.1-flash-lite',
+      'gemini-2.5-flash',
+    ],
     color: '#3b82f6',
     icon: '🔵',
-    apiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent',
+    apiUrl: 'https://generativelanguage.googleapis.com/v1beta/models',
     headerKey: 'x-goog-api-key',
   },
 };
+
+export const sanitizeApiKey = (value = '') =>
+  String(value)
+    .trim()
+    .replace(/^["']+|["']+$/g, '')
+    .replace(/[\s\u200B-\u200D\uFEFF]+/g, '')
+    .replace(/[^\x20-\x7E]/g, '');
 
 const SYSTEM_PROMPT = `Tu es un expert en rédaction de Prompts pour intelligence artificielle générative et agents IA. Tu as une spécialité forte en Reverse Prompt Engineering. Ton nom est « Promptor ».
 
@@ -174,42 +187,55 @@ export function buildMessages(conversationHistory) {
 export async function callAI(messages, provider, apiKey, onChunk) {
   const config = AI_PROVIDERS[provider];
   if (!config) throw new Error('Fournisseur IA non reconnu');
-  if (!apiKey) throw new Error('Clé API manquante. Configure-la dans les paramètres.');
+  const cleanedApiKey = sanitizeApiKey(apiKey);
+  if (!cleanedApiKey) throw new Error('Clé API manquante. Configure-la dans les paramètres.');
 
   if (provider === 'gemini') {
-    const url = config.apiUrl;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{ text: SYSTEM_PROMPT }],
-        },
-        contents: messages
-          .filter((msg) => msg.role !== 'system')
-          .map((msg) => ({
-            role: msg.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: msg.content }],
-          })),
-        generationConfig: {
-          temperature: 1,
-          maxOutputTokens: 65536,
-        },
-      }),
-    });
+    const models = getGeminiModels(config);
+    let lastError = 'Aucun modèle Gemini disponible';
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error?.message || `Erreur Gemini ${response.status}`);
+    for (const model of models) {
+      const response = await fetch(`${config.apiUrl}/${model}:generateContent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': cleanedApiKey,
+        },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [{ text: SYSTEM_PROMPT }],
+          },
+          contents: messages
+            .filter((msg) => msg.role !== 'system')
+            .map((msg) => ({
+              role: msg.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: msg.content }],
+            })),
+          generationConfig: {
+            temperature: 1,
+            maxOutputTokens: 65536,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await getGeminiErrorMessage(response);
+        lastError = message;
+
+        if (shouldTryNextGeminiModel(response.status, message)) {
+          continue;
+        }
+
+        throw new Error(message || `Erreur Gemini ${response.status}`);
+      }
+
+      const data = await response.json();
+      const text = extractGeminiText(data);
+      if (onChunk) onChunk(text);
+      return text;
     }
 
-    const data = await response.json();
-    const text = extractGeminiText(data);
-    if (onChunk) onChunk(text);
-    return text;
+    throw new Error(lastError);
   }
 
   if (provider === 'openai') {
@@ -217,7 +243,7 @@ export async function callAI(messages, provider, apiKey, onChunk) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${cleanedApiKey}`,
       },
       body: JSON.stringify({
         model: config.model,
@@ -245,7 +271,7 @@ export async function callAI(messages, provider, apiKey, onChunk) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'x-api-key': cleanedApiKey,
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
       },
@@ -266,6 +292,24 @@ export async function callAI(messages, provider, apiKey, onChunk) {
 
     return readStream(response, onChunk, 'claude');
   }
+}
+
+function getGeminiModels(config) {
+  return (config.models?.length ? config.models : [config.model])
+    .filter(Boolean)
+    .map((model) => model.trim())
+    .filter((model, index, models) => models.indexOf(model) === index);
+}
+
+async function getGeminiErrorMessage(response) {
+  const fallback = `Erreur Gemini ${response.status}`;
+  const err = await response.json().catch(() => null);
+  return err?.error?.message || fallback;
+}
+
+function shouldTryNextGeminiModel(status, message) {
+  return [400, 404].includes(status) &&
+    /model|not found|not supported|deprecated|shutdown|retired|unknown/i.test(message);
 }
 
 function extractGeminiText(data) {
